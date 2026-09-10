@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Badia Spices — Cloud Fleet & Audio Hub</title>
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config={
+  theme:{extend:{colors:{
+    badiaRed:'#DC2626',badiaDarkRed:'#B91C1C',badiaGold:'#F59E0B',badiaDark:'#0F172A'
+  }}}
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<style>
+*{box-sizing:border-box}
+body{font-family:Inter,Arial,sans-serif;background:#f8fafc;color:#0f172a}
+.view-section{display:none}.view-section.active{display:block}
+.glass-card{background:rgba(255,255,255,.94);border:1px solid #e2e8f0;box-shadow:0 12px 35px rgba(15,23,42,.08);border-radius:20px}
+.glass-dark{background:rgba(15,23,42,.96);color:#fff}
+#leaflet-map{height:100%;min-height:420px;border-radius:18px;z-index:1}
+#ptt-btn{width:170px;height:170px;border-radius:50%;box-shadow:0 18px 45px rgba(220,38,38,.25);transition:.15s;touch-action:none}
+#admin-ptt-btn{transition:.15s;touch-action:none}
+#ptt-btn:active{transform:scale(.96)}
+.pulse{animation:pulse 1.2s infinite}@keyframes pulse{50%{box-shadow:0 0 0 20px rgba(220,38,38,0)}}
+.chat-scroll{max-height:440px;overflow-y:auto}
+.message{max-width:82%;word-break:break-word}
+.toast{position:fixed;right:18px;bottom:18px;z-index:9999;transform:translateY(130px);opacity:0;transition:.25s;pointer-events:none}
+.toast.show{transform:translateY(0);opacity:1}
+.sync-dot{width:9px;height:9px;border-radius:50%;display:inline-block;background:#f59e0b}
+.sync-dot.ok{background:#22c55e}.sync-dot.bad{background:#ef4444}
+input,select,button{font:inherit}
+button:disabled{opacity:.55;cursor:not-allowed}
+@media(max-width:900px){
+ #leaflet-map{min-height:320px}
+ .admin-grid{grid-template-columns:1fr!important}
+}
+</style>
+</head>
+
+<body>
+<header class="sticky top-0 z-50 bg-slate-950 text-white shadow-lg">
+  <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
+    <div class="flex items-center gap-3">
+      <div class="w-11 h-11 rounded-xl bg-red-600 flex items-center justify-center font-black text-xl">B</div>
+      <div>
+        <div class="font-extrabold leading-tight">Badia Spices</div>
+        <div class="text-xs text-slate-300">Cloud Fleet &amp; Audio Hub</div>
+      </div>
+    </div>
+    <div class="flex items-center gap-3">
+      <div id="sync-status-badge" class="text-xs bg-slate-800 px-3 py-2 rounded-full flex items-center gap-2">
+        <span id="sync-dot" class="sync-dot"></span><span id="sync-text">Connecting...</span>
+      </div>
+      <div id="header-auth-controls"></div>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-7xl mx-auto px-4 py-6">
+
+<section id="view-auth" class="view-section active">
+  <div class="max-w-md mx-auto">
+    <div class="glass-card p-6 md:p-8">
+      <div class="text-center mb-7">
+        <div class="inline-flex w-16 h-16 rounded-2xl bg-red-600 text-white items-center justify-center text-2xl mb-4">
+          <i class="fa-solid fa-tower-broadcast"></i>
+        </div>
+        <h1 class="text-2xl font-extrabold">Badia Audio Fleet Portal</h1>
+        <p class="text-sm text-slate-500 mt-1">Rider Mobile Login / Admin Command</p>
+      </div>
+
+      <div class="grid grid-cols-2 bg-slate-100 rounded-xl p-1 mb-6">
+        <button id="auth-tab-rider" onclick="setAuthMode('rider')" class="rounded-lg py-2.5 font-bold bg-white shadow">Rider</button>
+        <button id="auth-tab-admin" onclick="setAuthMode('admin')" class="rounded-lg py-2.5 font-bold text-slate-500">Admin</button>
+      </div>
+
+      <form id="form-rider-auth" onsubmit="handleRiderLogin(event)" class="space-y-4">
+        <div>
+          <label class="text-sm font-semibold">Full Name</label>
+          <input id="rider-input-name" required class="mt-1 w-full border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-red-500" placeholder="Enter full name">
+        </div>
+        <div>
+          <label class="text-sm font-semibold">Phone Number</label>
+          <input id="rider-input-phone" required class="mt-1 w-full border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-red-500" placeholder="e.g. 024 000 0000">
+        </div>
+        <button id="rider-login-btn" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3.5 rounded-xl">
+          Launch Rider Shift &amp; Chat
+        </button>
+      </form>
+
+      <form id="form-admin-auth" onsubmit="handleAdminLogin(event)" class="space-y-4 hidden">
+        <div>
+          <label class="text-sm font-semibold">Admin Passcode</label>
+          <input id="admin-input-pass" type="password" required class="mt-1 w-full border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-red-500" placeholder="Enter admin passcode">
+        </div>
+        <button class="w-full bg-slate-950 hover:bg-slate-800 text-white font-bold py-3.5 rounded-xl">
+          Open Command Center
+        </button>
+        <p class="text-xs text-slate-500 text-center">ADMIN ACCESS</p>
+      </form>
+
+      <div id="connection-message" class="mt-5 rounded-xl bg-slate-50 border border-slate-200 p-3 text-xs text-slate-600">
+        Cloud connection is starting. Admin login is available independently.
+      </div>
+
+      <div class="mt-7 pt-5 border-t text-center text-xs text-slate-400">
+        <div class="font-semibold">Badia Spices</div>
+        <div>CREATED BY JEFF.0</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="view-rider-portal" class="view-section">
+  <div class="glass-dark rounded-3xl overflow-hidden max-w-3xl mx-auto">
+    <div class="p-4 flex items-center justify-between border-b border-white/10">
+      <div class="flex items-center gap-3">
+        <div id="rider-avatar-initial" class="w-11 h-11 rounded-full bg-red-600 flex items-center justify-center font-bold">R</div>
+        <div>
+          <div id="rider-display-name" class="font-bold">Rider</div>
+          <div id="rider-display-phone" class="text-xs text-slate-400"></div>
+        </div>
+      </div>
+      <button onclick="riderLogout()" class="px-3 py-2 rounded-lg bg-white/10 text-sm">Logout</button>
+    </div>
+
+    <div class="px-4 pt-4">
+      <div class="flex items-center justify-between">
+        <div class="text-xs text-slate-400">SHIFT STATUS</div>
+        <div id="rider-phone-clock" class="text-sm font-semibold"></div>
+      </div>
+      <div id="rider-cloud-pill" class="mt-2 inline-flex items-center gap-2 text-xs bg-white/10 px-3 py-1.5 rounded-full">
+        <span class="sync-dot"></span>Cloud
+      </div>
+    </div>
+
+    <div class="p-4">
+      <div class="grid grid-cols-4 gap-2 bg-white/10 rounded-xl p-1">
+        <button id="rtab-gps" onclick="switchRiderTab('gps')" class="rounded-lg py-2 bg-white text-slate-900 text-xs font-bold">GPS</button>
+        <button id="rtab-dispatch" onclick="switchRiderTab('dispatch')" class="rounded-lg py-2 text-xs font-bold">Dispatch</button>
+        <button id="rtab-chat" onclick="switchRiderTab('chat')" class="rounded-lg py-2 text-xs font-bold">Chat</button>
+        <button id="rtab-audio" onclick="switchRiderTab('audio')" class="rounded-lg py-2 text-xs font-bold">Walkie</button>
+      </div>
+    </div>
+
+    <div id="rider-subtab-gps" class="p-4">
+      <div class="bg-white/10 rounded-2xl p-5">
+        <div class="text-sm font-bold mb-2">GPS Location</div>
+        <div id="rider-gps-status-box" class="text-sm text-slate-300">Location has not been requested.</div>
+        <button onclick="requestDeviceGeolocation()" class="mt-4 bg-red-600 px-4 py-3 rounded-xl font-bold">
+          <i class="fa-solid fa-location-crosshairs mr-2"></i>Enable GPS
+        </button>
+      </div>
+    </div>
+
+    <div id="rider-subtab-dispatch" class="p-4 hidden">
+      <div class="flex items-center justify-between mb-3">
+        <div>
+          <div class="text-lg font-extrabold">Dispatch Inbox</div>
+          <div class="text-xs text-slate-400">Orders assigned specifically to you</div>
+        </div>
+        <span id="rider-dispatch-count" class="bg-red-600 text-white text-xs font-bold px-2.5 py-1 rounded-full">0</span>
+      </div>
+      <div id="rider-dispatch-list" class="space-y-3"></div>
+    </div>
+
+    <div id="rider-subtab-chat" class="p-4 hidden">
+      <div id="rider-chat-messages" class="chat-scroll space-y-3 bg-white/5 rounded-2xl p-4 min-h-[300px]"></div>
+      <form onsubmit="sendRiderMessage(event)" class="flex gap-2 mt-3">
+        <input id="rider-chat-input" class="flex-1 rounded-xl px-4 py-3 bg-white/10 border border-white/10 outline-none" placeholder="Type a message">
+        <button class="bg-red-600 px-5 rounded-xl font-bold"><i class="fa-solid fa-paper-plane"></i></button>
+      </form>
+    </div>
+
+    <div id="rider-subtab-audio" class="p-4 hidden text-center">
+      <div class="text-sm text-slate-400 mb-5">Hold to record a voice message</div>
+      <button id="ptt-btn" onpointerdown="startPTTRecording(event)" onpointerup="stopPTTRecording(event)" onpointercancel="stopPTTRecording(event)" class="bg-red-600 text-white">
+        <i class="fa-solid fa-microphone text-4xl"></i>
+      </button>
+      <div id="ptt-pulse-ring" class="hidden"></div>
+      <div id="ptt-btn-text" class="font-bold mt-5">PRESS &amp; HOLD</div>
+      <div id="rider-ptt-status" class="text-sm text-slate-400 mt-2">Ready</div>
+    </div>
+  </div>
+</section>
+
+<section id="view-admin-portal" class="view-section">
+  <div class="mb-5 flex items-center justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-extrabold">Admin Command Center</h1>
+      <p class="text-sm text-slate-500">Fleet, dispatch and private rider communication</p>
+    </div>
+    <button onclick="adminLogout()" class="bg-slate-950 text-white px-4 py-2.5 rounded-xl font-semibold">Logout</button>
+  </div>
+
+  <div class="grid grid-cols-3 gap-3 mb-5">
+    <div class="glass-card p-4"><div class="text-xs text-slate-500">ACTIVE ORDERS</div><div id="admin-order-count" class="text-2xl font-extrabold mt-1">0</div></div>
+    <div class="glass-card p-4"><div class="text-xs text-slate-500">FLEET</div><div id="admin-fleet-count" class="text-2xl font-extrabold mt-1">0</div></div>
+    <div class="glass-card p-4"><div class="text-xs text-slate-500">CLOUD</div><div id="admin-cloud-state" class="text-2xl font-extrabold mt-1">Offline</div></div>
+  </div>
+
+  <div class="admin-grid grid grid-cols-[330px_1fr_350px] gap-5">
+    <div class="space-y-5">
+      <div class="glass-card p-5">
+        <h2 class="font-extrabold text-lg mb-4"><i class="fa-solid fa-truck-fast text-red-600 mr-2"></i>Order Dispatch</h2>
+        <form onsubmit="handleCreateOrder(event)" class="space-y-3">
+          <input id="order-customer" required class="w-full border rounded-xl px-3 py-2.5" placeholder="Customer name">
+          <input id="order-qty" required class="w-full border rounded-xl px-3 py-2.5" placeholder="Quantity / items">
+          <select id="order-rider" class="w-full border rounded-xl px-3 py-2.5">
+            <option value="">Assign Rider</option>
+          </select>
+          <button class="w-full bg-red-600 text-white font-bold py-3 rounded-xl">Create Dispatch</button>
+        </form>
+        <button onclick="generateAndPlayTTSDispatch()" class="w-full mt-3 bg-slate-950 text-white font-bold py-3 rounded-xl">
+          <i class="fa-solid fa-volume-high mr-2"></i>Voice Dispatch
+        </button>
+      </div>
+
+      <div class="glass-card p-5">
+        <h2 class="font-extrabold mb-3">Active Dispatches</h2>
+        <div id="admin-orders-list" class="space-y-2 max-h-64 overflow-auto"></div>
+      </div>
+
+      <div class="glass-card p-5">
+        <h2 class="font-extrabold mb-3">Fleet Timestamps</h2>
+        <div id="admin-riders-status" class="space-y-2 max-h-72 overflow-auto"></div>
+      </div>
+    </div>
+
+    <div class="glass-card p-3">
+      <div class="flex items-center justify-between px-2 pb-3">
+        <div class="font-extrabold">Accra Fleet Map</div>
+        <div id="admin-map-status" class="text-xs text-slate-500">Waiting for rider GPS</div>
+      </div>
+      <div id="leaflet-map"></div>
+    </div>
+
+    <div class="glass-card p-5">
+      <div class="mb-3">
+        <div class="text-xs text-slate-500">PRIVATE CHAT</div>
+        <div id="admin-chat-header" class="font-extrabold text-lg">Select a rider</div>
+      </div>
+      <div id="admin-chat-messages" class="chat-scroll space-y-3 bg-slate-50 rounded-2xl p-3 min-h-[350px]"></div>
+      <form onsubmit="sendAdminMessage(event)" class="flex gap-2 mt-3">
+        <input id="admin-chat-input" class="flex-1 border rounded-xl px-3 py-3" placeholder="Message selected rider">
+        <button id="admin-chat-send" class="bg-red-600 text-white px-4 rounded-xl font-bold"><i class="fa-solid fa-paper-plane"></i></button>
+      </form>
+
+      <div class="mt-5 border-t pt-5 text-center">
+        <div class="text-xs font-bold text-slate-500 mb-3">ADMIN WALKIE-TALKIE</div>
+        <button id="admin-ptt-btn"
+          onpointerdown="startAdminPTT(event)"
+          onpointerup="stopAdminPTT(event)"
+          onpointercancel="stopAdminPTT(event)"
+          class="w-28 h-28 rounded-full bg-slate-950 text-white shadow-xl touch-none">
+          <i class="fa-solid fa-microphone text-3xl"></i>
+        </button>
+        <div id="admin-ptt-text" class="font-bold mt-3 text-sm">PRESS &amp; HOLD</div>
+        <div id="admin-ptt-status" class="text-xs text-slate-500 mt-1">Select a rider, then hold to talk</div>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<div id="toast-notification" class="toast">
+  <div class="bg-slate-950 text-white rounded-2xl shadow-2xl p-4 w-[320px]">
+    <div class="flex gap-3">
+      <div id="toast-icon" class="text-red-400"><i class="fa-solid fa-circle-info"></i></div>
+      <div><div id="toast-title" class="font-bold"></div><div id="toast-desc" class="text-xs text-slate-300 mt-1"></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ==========================================================
+   BADIA SPICES — SINGLE-FILE CONNECTION-SAFE APPLICATION
+   ========================================================== */
+const SUPABASE_URL="https://svlzlkutlysfscveytcl.supabase.co";
+const SUPABASE_ANON_KEY="sb_publishable_4FoG_HAkeBZCDknXwhxrSg_qbqXTCYv";
+const ADMIN_PASSCODE="badia2026";
+
+let db=null, cloudReady=false, cloudStarting=false, currentUser=null;
+let appRole=null, riderRow=null, selectedRiderId=null;
+let riders=[], orders=[], messages=[];
+let map=null, riderMarkers={}, gpsWatchId=null, mediaRecorder=null, audioChunks=[];
+let channels=[], clockTimer=null;
+
+const $=id=>document.getElementById(id);
+
+function toast(title,desc="",ok=false){
+  $("toast-title").textContent=title;
+  $("toast-desc").textContent=desc;
+  $("toast-icon").innerHTML=ok?'<i class="fa-solid fa-circle-check text-green-400"></i>':'<i class="fa-solid fa-circle-info text-red-400"></i>';
+  $("toast-notification").classList.add("show");
+  clearTimeout(window.__toast);
+  window.__toast=setTimeout(()=>$("toast-notification").classList.remove("show"),3500);
+}
+
+function setConnection(message,good=false){
+  $("sync-text").textContent=message;
+  $("sync-dot").className="sync-dot "+(good?"ok":"bad");
+  $("connection-message").textContent=message;
+  if($("admin-cloud-state")) $("admin-cloud-state").textContent=good?"Online":"Offline";
+  if($("rider-cloud-pill")) $("rider-cloud-pill").innerHTML='<span class="sync-dot '+(good?'ok':'bad')+'"></span>'+message;
+}
+
+function showView(id){
+  document.querySelectorAll(".view-section").forEach(x=>x.classList.remove("active"));
+  $(id).classList.add("active");
+  updateHeader();
+}
+
+function updateHeader(){
+  if(appRole==="rider"){
+    $("header-auth-controls").innerHTML='<span class="text-xs text-slate-300">Rider Mode</span>';
+  }else if(appRole==="admin"){
+    $("header-auth-controls").innerHTML='<span class="text-xs text-slate-300">Admin Mode</span>';
+  }else $("header-auth-controls").innerHTML="";
+}
+
+function setAuthMode(mode){
+  $("form-rider-auth").classList.toggle("hidden",mode!=="rider");
+  $("form-admin-auth").classList.toggle("hidden",mode!=="admin");
+  $("auth-tab-rider").className=mode==="rider"?"rounded-lg py-2.5 font-bold bg-white shadow":"rounded-lg py-2.5 font-bold text-slate-500";
+  $("auth-tab-admin").className=mode==="admin"?"rounded-lg py-2.5 font-bold bg-white shadow":"rounded-lg py-2.5 font-bold text-slate-500";
+}
+
+function localAdminLogin(){
+  appRole="admin";
+  showView("view-admin-portal");
+  setTimeout(initMap,50);
+  renderAll();
+  toast("Admin access granted","Admin command center is available.",true);
+}
+
+async function handleAdminLogin(e){
+  e.preventDefault();
+  const pass=$("admin-input-pass").value;
+  if(pass!==ADMIN_PASSCODE){
+    toast("Access denied","Incorrect admin passcode.");
+    return;
+  }
+  /* Admin is deliberately NOT blocked by cloud status. */
+  localAdminLogin();
+  if(!cloudReady) toast("Cloud still connecting","Admin is open; fleet data will appear when cloud reconnects.");
+}
+
+async function handleRiderLogin(e){
+  e.preventDefault();
+  const name=$("rider-input-name").value.trim();
+  const phone=$("rider-input-phone").value.trim();
+  if(!name||!phone) return;
+
+  const btn=$("rider-login-btn");
+  btn.disabled=true; btn.textContent="Connecting rider...";
+  try{
+    await ensureCloud();
+    if(!cloudReady||!currentUser) throw new Error("Cloud authentication is unavailable. "+(window.__cloudError||""));
+    riderRow=await upsertRider(name,phone);
+    appRole="rider";
+    showView("view-rider-portal");
+    $("rider-display-name").textContent=name;
+    $("rider-display-phone").textContent=phone;
+    $("rider-avatar-initial").textContent=name.charAt(0).toUpperCase();
+    switchRiderTab("gps");
+    startClock();
+    renderRiderDispatches();
+    subscribeRealtime();
+    toast("Rider shift started","You are connected to Badia cloud.",true);
+  }catch(err){
+    console.error(err);
+    toast("Rider login failed",cleanError(err));
+    setConnection("Connection failed",false);
+  }finally{
+    btn.disabled=false; btn.textContent="Launch Rider Shift & Chat";
+  }
+}
+
+function cleanError(err){
+  if(!err) return "Unknown error";
+  return err.message||String(err);
+}
+
+/* ---------- CLOUD INITIALIZATION ---------- */
+async function ensureCloud(){
+  if(cloudReady&&db&&currentUser) return true;
+  if(cloudStarting){
+    for(let i=0;i<50;i++){
+      await new Promise(r=>setTimeout(r,100));
+      if(cloudReady&&currentUser) return true;
+    }
+    return false;
+  }
+  cloudStarting=true;
+  setConnection("Connecting to Cloud...",false);
+
+  try{
+    if(!window.supabase||typeof window.supabase.createClient!=="function"){
+      throw new Error("Supabase JavaScript library did not load. Check internet access and reload.");
+    }
+
+    db=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{
+      auth:{
+        persistSession:true,
+        autoRefreshToken:true,
+        detectSessionInUrl:false
+      }
+    });
+
+    const sessionRes=await db.auth.getSession();
+    if(sessionRes.error) throw sessionRes.error;
+
+    if(sessionRes.data&&sessionRes.data.session&&sessionRes.data.session.user){
+      currentUser=sessionRes.data.session.user;
+    }else{
+      const signRes=await db.auth.signInAnonymously();
+      if(signRes.error) throw signRes.error;
+      currentUser=signRes.data.user;
+    }
+
+    if(!currentUser) throw new Error("Supabase returned no authenticated user.");
+
+    cloudReady=true;
+    window.__cloudError="";
+    setConnection("Cloud connected",true);
+
+    await loadCloudData();
+    subscribeRealtime();
+    return true;
+  }catch(err){
+    cloudReady=false;
+    window.__cloudError=cleanError(err);
+    setConnection("Connection failed",false);
+    $("connection-message").textContent="Cloud connection failed: "+cleanError(err);
+    console.error("BADIA SUPABASE ERROR:",err);
+    return false;
+  }finally{
+    cloudStarting=false;
+  }
+}
+
+async function loadCloudData(){
+  if(!cloudReady) return;
+  try{
+    const [r,o,m]=await Promise.all([
+      db.from("riders").select("*").order("created_at",{ascending:false}),
+      db.from("orders").select("*").order("created_at",{ascending:false}),
+      db.from("messages").select("*").order("created_at",{ascending:true})
+    ]);
+    if(r.error) throw r.error;
+    if(o.error) throw o.error;
+    if(m.error) throw m.error;
+    riders=r.data||[]; orders=o.data||[]; messages=m.data||[];
+    renderAll();
+  }catch(err){
+    console.error("Cloud data load error:",err);
+    toast("Cloud data error",cleanError(err));
+  }
+}
+
+function subscribeRealtime(){
+  if(!db||!cloudReady) return;
+  channels.forEach(c=>{try{db.removeChannel(c)}catch(e){}});
+  channels=[];
+
+  ["riders","orders","messages"].forEach(table=>{
+    const ch=db.channel("badia-"+table+"-"+Date.now()+"-"+Math.random());
+    ch.on("postgres_changes",{event:"*",schema:"public",table},payload=>{
+      if(table==="riders"){
+        if(payload.eventType==="INSERT") riders.unshift(payload.new);
+        else if(payload.eventType==="UPDATE") riders=riders.map(x=>x.id===payload.new.id?payload.new:x);
+        else if(payload.eventType==="DELETE") riders=riders.filter(x=>x.id!==payload.old.id);
+      }
+      if(table==="orders"){
+        if(payload.eventType==="INSERT"){
+          orders.unshift(payload.new);
+          if(appRole==="rider" && riderRow && payload.new.rider_id===riderRow.id){
+            toast("New dispatch received","A new order has been assigned to you.",true);
+          }
+        }
+        else if(payload.eventType==="UPDATE") orders=orders.map(x=>x.id===payload.new.id?payload.new:x);
+        else if(payload.eventType==="DELETE") orders=orders.filter(x=>x.id!==payload.old.id);
+      }
+      if(table==="messages"){
+        if(payload.eventType==="INSERT") messages.push(payload.new);
+        else if(payload.eventType==="UPDATE") messages=messages.map(x=>x.id===payload.new.id?payload.new:x);
+        else if(payload.eventType==="DELETE") messages=messages.filter(x=>x.id!==payload.old.id);
+      }
+      renderAll();
+    }).subscribe();
+    channels.push(ch);
+  });
+}
+
+/* ---------- RIDERS ---------- */
+async function upsertRider(name,phone){
+  const row={
+    user_id:currentUser.id,
+    name,phone,status:"Online",
+    login_time:new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}),
+    login_timestamp:new Date().toISOString(),
+    last_seen:new Date().toISOString()
+  };
+  const {data,error}=await db.from("riders").upsert(row,{onConflict:"user_id"}).select().single();
+  if(error) throw error;
+  riders=riders.filter(x=>x.id!==data.id);
+  riders.unshift(data);
+  return data;
+}
+
+async function updateRiderLocation(lat,lng){
+  if(!cloudReady||!riderRow||!db) return;
+  const {data,error}=await db.from("riders").update({
+    lat,lng,last_seen:new Date().toISOString(),status:"Online"
+  }).eq("id",riderRow.id).select().single();
+  if(!error&&data){
+    riderRow=data;
+    riders=riders.map(x=>x.id===data.id?data:x);
+    renderFleet();
+    updateMap();
+  }
+}
+
+function requestDeviceGeolocation(){
+  if(!navigator.geolocation){
+    $("rider-gps-status-box").textContent="This browser does not support GPS.";
+    return;
+  }
+  $("rider-gps-status-box").textContent="Requesting GPS permission...";
+  if(gpsWatchId!==null) navigator.geolocation.clearWatch(gpsWatchId);
+  gpsWatchId=navigator.geolocation.watchPosition(
+    pos=>{
+      const {latitude,longitude,accuracy}=pos.coords;
+      $("rider-gps-status-box").innerHTML=`GPS active<br>Lat: ${latitude.toFixed(6)}<br>Lng: ${longitude.toFixed(6)}<br>Accuracy: ±${Math.round(accuracy)}m`;
+      updateRiderLocation(latitude,longitude);
+    },
+    err=>{
+      $("rider-gps-status-box").textContent="GPS error: "+err.message+" — use HTTPS/localhost if browser blocks location.";
+      toast("GPS unavailable",err.message);
+    },
+    {enableHighAccuracy:true,maximumAge:10000,timeout:20000}
+  );
+}
+
+/* ---------- RIDER CHAT ---------- */
+function switchRiderTab(tab){
+  ["gps","dispatch","chat","audio"].forEach(t=>{
+    $("rider-subtab-"+t).classList.toggle("hidden",t!==tab);
+    const b=$("rtab-"+t);
+    if(b) b.className=t===tab
+      ?"rounded-lg py-2 bg-white text-slate-900 text-xs font-bold"
+      :"rounded-lg py-2 text-xs font-bold";
+  });
+  if(tab==="chat") renderRiderChat();
+  if(tab==="dispatch") renderRiderDispatches();
+}
+
+async function sendRiderMessage(e){
+  e.preventDefault();
+  const input=$("rider-chat-input"), text=input.value.trim();
+  if(!text||!cloudReady||!riderRow) return;
+  input.value="";
+  const {error}=await db.from("messages").insert([{
+    rider_id:riderRow.id,sender:riderRow.name,sender_role:"rider",
+    text,type:"text",time:new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})
+  }]);
+  if(error){toast("Message failed",cleanError(error));input.value=text;}
+}
+
+async function sendAdminMessage(e){
+  e.preventDefault();
+  const input=$("admin-chat-input"), text=input.value.trim();
+  if(!text||!cloudReady||!selectedRiderId) return;
+  input.value="";
+  const {error}=await db.from("messages").insert([{
+    rider_id:selectedRiderId,sender:"Admin",sender_role:"admin",
+    text,type:"text",time:new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})
+  }]);
+  if(error){toast("Message failed",cleanError(error));input.value=text;}
+}
+
+function renderMessages(container,arr,role){
+  container.innerHTML="";
+  arr.forEach(m=>{
+    const mine=m.sender_role===role;
+    const wrap=document.createElement("div");
+    wrap.className="flex "+(mine?"justify-end":"justify-start");
+    const box=document.createElement("div");
+    box.className="message rounded-2xl px-3 py-2 "+(mine?(role==="admin"?"bg-red-600 text-white":"bg-red-600 text-white"):"bg-white border text-slate-800");
+    if(m.type==="audio"&&m.audio_url){
+      const audio=document.createElement("audio"); audio.controls=true; audio.src=m.audio_url; audio.className="max-w-full";
+      box.appendChild(audio);
+    }else{
+      const t=document.createElement("div");t.textContent=m.text||"";box.appendChild(t);
+    }
+    const time=document.createElement("div");time.className="text-[10px] opacity-60 mt-1";time.textContent=m.time||"";
+    box.appendChild(time);wrap.appendChild(box);container.appendChild(wrap);
+  });
+  container.scrollTop=container.scrollHeight;
+}
+
+function renderRiderChat(){
+  if(!riderRow) return;
+  const arr=messages.filter(m=>m.rider_id===riderRow.id);
+  renderMessages($("rider-chat-messages"),arr,"rider");
+}
+
+/* ---------- AUDIO ---------- */
+async function startPTTRecording(){
+  if(mediaRecorder&&mediaRecorder.state==="recording") return;
+  if(!riderRow){
+    toast("Rider unavailable","Your rider session is not active.");
+    return;
+  }
+  await startVoiceRecording("rider",riderRow.id,{
+    button:"ptt-btn",buttonText:"ptt-btn-text",status:"rider-ptt-status"
+  });
+}
+
+async function startAdminPTT(){
+  if(!selectedRiderId){
+    toast("Select a rider first","Choose a rider from Fleet Timestamps before using the Admin Walkie-Talkie.");
+    return;
+  }
+  await startVoiceRecording("admin",selectedRiderId,{
+    button:"admin-ptt-btn",buttonText:"admin-ptt-text",status:"admin-ptt-status"
+  });
+}
+
+function stopPTTRecording(){
+  stopVoiceRecording({button:"ptt-btn",buttonText:"ptt-btn-text",status:"rider-ptt-status"});
+}
+
+function stopAdminPTT(){
+  stopVoiceRecording({button:"admin-ptt-btn",buttonText:"admin-ptt-text",status:"admin-ptt-status"});
+}
+
+async function startVoiceRecording(senderRole,targetRiderId,ui){
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+    toast("Microphone unavailable","Use HTTPS or localhost and allow microphone access.");
+    return;
+  }
+  if(!cloudReady||!db){
+    toast("Cloud unavailable","Voice communication needs the cloud connection.");
+    return;
+  }
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+    const preferred=["audio/webm;codecs=opus","audio/webm","audio/mp4","audio/ogg"].find(x=>MediaRecorder.isTypeSupported(x));
+    mediaRecorder=new MediaRecorder(stream,preferred?{mimeType:preferred}:undefined);
+    audioChunks=[];
+    mediaRecorder.__badiaRole=senderRole;
+    mediaRecorder.__badiaTarget=targetRiderId;
+    mediaRecorder.__badiaUI=ui;
+    mediaRecorder.ondataavailable=e=>{if(e.data.size)audioChunks.push(e.data)};
+    mediaRecorder.onstop=async()=>{
+      stream.getTracks().forEach(t=>t.stop());
+      const blob=new Blob(audioChunks,{type:mediaRecorder.mimeType||"audio/webm"});
+      const role=mediaRecorder.__badiaRole;
+      const target=mediaRecorder.__badiaTarget;
+      const savedUI=mediaRecorder.__badiaUI;
+      mediaRecorder=null;
+      await uploadVoiceMessage(blob,role,target,savedUI);
+    };
+    mediaRecorder.start();
+    $(ui.button).classList.add("pulse");
+    $(ui.buttonText).textContent="RECORDING...";
+    $(ui.status).textContent="Release to send";
+  }catch(err){
+    toast("Microphone blocked",err.message);
+  }
+}
+
+function stopVoiceRecording(ui){
+  if(mediaRecorder&&mediaRecorder.state==="recording"){
+    const recorderUI=mediaRecorder.__badiaUI;
+    mediaRecorder.stop();
+    if(recorderUI){
+      $(recorderUI.button).classList.remove("pulse");
+      $(recorderUI.buttonText).textContent="PRESS & HOLD";
+      $(recorderUI.status).textContent="Uploading...";
+    }
+  }
+}
+
+async function uploadVoiceMessage(blob,senderRole,targetRiderId,ui){
+  if(!cloudReady||!db){
+    toast("Cloud unavailable","Voice message cannot be uploaded.");
+    return;
+  }
+  try{
+    const ext=(blob.type||"audio/webm").includes("mp4")?"mp4":(blob.type||"").includes("ogg")?"ogg":"webm";
+    const path=`${targetRiderId}/${senderRole}-${Date.now()}.${ext}`;
+    const up=await db.storage.from("voice-messages").upload(path,blob,{
+      contentType:blob.type||"audio/webm",upsert:false
+    });
+    if(up.error) throw up.error;
+    const pub=db.storage.from("voice-messages").getPublicUrl(path);
+    const sender=senderRole==="admin"?"Admin":(riderRow?riderRow.name:"Rider");
+    const {error}=await db.from("messages").insert([{
+      rider_id:targetRiderId,sender,sender_role:senderRole,
+      text:"Voice message",type:"audio",audio_url:pub.data.publicUrl,
+      time:new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})
+    }]);
+    if(error) throw error;
+    if(ui&&$(ui.status)) $(ui.status).textContent="Voice message sent";
+    toast("Voice sent",senderRole==="admin"?"Rider received your voice message.":"Admin received your voice message.",true);
+  }catch(err){
+    if(ui&&$(ui.status)) $(ui.status).textContent="Upload failed";
+    toast("Voice upload failed",cleanError(err));
+  }
+}
+
+
+/* ---------- RIDER DISPATCH INBOX ---------- */
+function renderRiderDispatches(){
+  const list=$("rider-dispatch-list");
+  const count=$("rider-dispatch-count");
+  if(!list||!count) return;
+  if(!riderRow){
+    count.textContent="0";
+    list.innerHTML='<div class="text-sm text-slate-400 text-center py-12">Rider session not active.</div>';
+    return;
+  }
+
+  const assigned=orders
+    .filter(o=>o.rider_id===riderRow.id && o.status!=="Delivered")
+    .sort((a,b)=>new Date(b.created_at||0)-new Date(a.created_at||0));
+
+  const pending=assigned.filter(o=>o.status==="Pending"||o.status==="New");
+  count.textContent=pending.length;
+  list.innerHTML="";
+
+  if(!assigned.length){
+    list.innerHTML='<div class="text-sm text-slate-400 text-center py-12">No dispatches assigned to you yet.</div>';
+    return;
+  }
+
+  assigned.forEach(o=>{
+    const card=document.createElement("div");
+    card.className="rounded-2xl p-4 border border-white/10 bg-white/10";
+    const isAccepted=o.status==="Accepted";
+    card.innerHTML=`
+      <div class="flex justify-between items-start gap-3">
+        <div>
+          <div class="text-xs text-slate-400">BADIA DISPATCH</div>
+          <div class="font-extrabold text-lg">${escapeHtml(o.customer)}</div>
+        </div>
+        <span class="text-xs font-bold px-2 py-1 rounded-full ${isAccepted?'bg-green-500/20 text-green-300':'bg-red-500/20 text-red-300'}">${escapeHtml(o.status||"Pending")}</span>
+      </div>
+      <div class="mt-3 text-sm text-slate-300"><b>Order:</b> ${escapeHtml(o.qty)}</div>
+      <div class="text-xs text-slate-400 mt-1">Created: ${escapeHtml(o.time||formatDate(o.created_at))}</div>
+      <div class="mt-4">
+        ${isAccepted
+          ? '<div class="text-center py-2.5 rounded-xl bg-green-500/20 text-green-300 font-bold text-sm">✓ DISPATCH ACCEPTED</div>'
+          : `<button onclick="acceptDispatch('${o.id}')" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2.5 rounded-xl">Accept Dispatch</button>`}
+      </div>`;
+    list.appendChild(card);
+  });
+}
+
+async function acceptDispatch(orderId){
+  if(!cloudReady||!db||!riderRow){
+    toast("Cloud unavailable","Cannot accept this dispatch right now.");
+    return;
+  }
+  const order=orders.find(o=>o.id===orderId);
+  if(!order) return;
+
+  const {data,error}=await db.from("orders").update({status:"Accepted"})
+    .eq("id",orderId).eq("rider_id",riderRow.id).select().single();
+
+  if(error){
+    toast("Dispatch update failed",cleanError(error));
+    return;
+  }
+  orders=orders.map(o=>o.id===data.id?data:o);
+  renderRiderDispatches();
+  renderOrders();
+  toast("Dispatch accepted","Admin has been notified.",true);
+}
+
+/* ---------- ORDERS / ADMIN ---------- */
+async function handleCreateOrder(e){
+  e.preventDefault();
+  if(!cloudReady){toast("Cloud unavailable","Order dispatch needs the cloud connection.");return;}
+  const customer=$("order-customer").value.trim();
+  const qty=$("order-qty").value.trim();
+  const riderId=$("order-rider").value;
+  const rider=riders.find(x=>x.id===riderId);
+  const {data,error}=await db.from("orders").insert([{
+    customer,qty,rider:rider?rider.name:null,rider_id:rider?rider.id:null,
+    time:new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}),status:"Pending"
+  }]).select().single();
+  if(error){toast("Order failed",cleanError(error));return;}
+  orders.unshift(data);
+  $("order-customer").value="";$("order-qty").value="";
+  toast("Dispatch created","Order saved to cloud.",true);
+  renderAll();
+}
+
+function generateAndPlayTTSDispatch(){
+  const customer=$("order-customer").value.trim();
+  const qty=$("order-qty").value.trim();
+  const riderId=$("order-rider").value;
+  const rider=riders.find(x=>x.id===riderId);
+  if(!customer||!qty){toast("Voice dispatch","Enter customer and quantity first.");return;}
+  const text=`New Badia dispatch for ${rider?rider.name:"rider"}. Customer ${customer}. Quantity ${qty}.`;
+  if("speechSynthesis" in window){
+    speechSynthesis.cancel();
+    speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+  }
+  if(cloudReady&&rider){
+    db.from("messages").insert([{
+      rider_id:rider.id,sender:"Admin",sender_role:"admin",
+      text:"🔊 VOICE DISPATCH: "+text,type:"text",
+      time:new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})
+    }]).then(({error})=>{if(error)toast("Dispatch message failed",cleanError(error));});
+  }
+}
+
+function renderOrders(){
+  const list=$("admin-orders-list");
+  list.innerHTML="";
+  const active=orders.filter(o=>o.status!=="Delivered");
+  $("admin-order-count").textContent=active.length;
+  active.forEach(o=>{
+    const d=document.createElement("div");
+    d.className="border rounded-xl p-3 bg-slate-50";
+    d.innerHTML=`<div class="font-bold">${escapeHtml(o.customer)}</div>
+      <div class="text-xs text-slate-500">${escapeHtml(o.qty)} • ${escapeHtml(o.rider||"Unassigned")}</div>
+      <div class="text-[11px] text-slate-400 mt-1">${escapeHtml(o.status||"Pending")} • ${escapeHtml(o.time||"")}</div>`;
+    list.appendChild(d);
+  });
+  if(!active.length) list.innerHTML='<div class="text-sm text-slate-400">No active dispatches.</div>';
+}
+
+function escapeHtml(v){
+  return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));
+}
+
+function renderFleet(){
+  const box=$("admin-riders-status");box.innerHTML="";
+  $("admin-fleet-count").textContent=riders.length;
+  const sel=$("order-rider");
+  const old=sel.value;
+  sel.innerHTML='<option value="">Assign Rider</option>';
+  riders.forEach(r=>{
+    const opt=document.createElement("option");opt.value=r.id;opt.textContent=r.name+" — "+r.phone;sel.appendChild(opt);
+  });
+  if(riders.some(r=>r.id===old))sel.value=old;
+
+  riders.forEach(r=>{
+    const d=document.createElement("div");
+    d.className="border rounded-xl p-3 cursor-pointer hover:bg-slate-50";
+    d.onclick=()=>selectAdminRider(r.id);
+    d.innerHTML=`<div class="flex justify-between gap-2"><b>${escapeHtml(r.name)}</b><span class="text-xs ${r.status==="Online"?"text-green-600":"text-slate-400"}">${escapeHtml(r.status||"Offline")}</span></div>
+    <div class="text-xs text-slate-500">${escapeHtml(r.phone)}</div>
+    <div class="text-[11px] text-slate-400 mt-1">Last seen: ${escapeHtml(formatDate(r.last_seen))}</div>`;
+    box.appendChild(d);
+  });
+  updateMap();
+}
+
+function formatDate(v){
+  if(!v)return "—";
+  try{return new Date(v).toLocaleString([], {month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})}catch(e){return v}
+}
+
+function selectAdminRider(id){
+  selectedRiderId=id;
+  const r=riders.find(x=>x.id===id);
+  $("admin-chat-header").textContent=r?r.name:"Select a rider";
+  renderAdminChat();
+}
+
+function renderAdminChat(){
+  if(!selectedRiderId){
+    $("admin-chat-messages").innerHTML='<div class="text-sm text-slate-400 text-center py-20">Select a rider from the fleet list.</div>';
+    return;
+  }
+  renderMessages($("admin-chat-messages"),messages.filter(m=>m.rider_id===selectedRiderId),"admin");
+}
+
+/* ---------- MAP ---------- */
+function initMap(){
+  if(map||!window.L)return;
+  map=L.map("leaflet-map").setView([5.6037,-0.1870],12);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);
+  updateMap();
+}
+
+function updateMap(){
+  if(!map)return;
+  riders.forEach(r=>{
+    if(typeof r.lat!=="number"||typeof r.lng!=="number")return;
+    const pos=[r.lat,r.lng];
+    if(!riderMarkers[r.id]){
+      riderMarkers[r.id]=L.marker(pos).addTo(map).bindPopup(escapeHtml(r.name));
+    }else riderMarkers[r.id].setLatLng(pos);
+  });
+  $("admin-map-status").textContent=riders.some(r=>typeof r.lat==="number")?"Rider GPS active":"Waiting for rider GPS";
+}
+
+/* ---------- RENDER ---------- */
+function renderAll(){
+  renderOrders();
+  renderFleet();
+  renderRiderChat();
+  renderRiderDispatches();
+  renderAdminChat();
+  if(map)updateMap();
+}
+
+function startClock(){
+  clearInterval(clockTimer);
+  const tick=()=>{
+    $("rider-phone-clock").textContent=new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"});
+  };
+  tick();clockTimer=setInterval(tick,1000);
+}
+
+/* ---------- LOGOUT: DO NOT SIGN OUT SUPABASE ANONYMOUS SESSION ---------- */
+async function riderLogout(){
+  if(riderRow&&cloudReady&&db){
+    try{
+      await db.from("riders").update({
+        status:"Offline",
+        logout_time:new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}),
+        logout_timestamp:new Date().toISOString(),
+        last_seen:new Date().toISOString()
+      }).eq("id",riderRow.id);
+    }catch(e){console.warn(e)}
+  }
+  if(gpsWatchId!==null&&navigator.geolocation){
+    navigator.geolocation.clearWatch(gpsWatchId);gpsWatchId=null;
+  }
+  appRole=null;riderRow=null;
+  showView("view-auth");setAuthMode("rider");
+  toast("Rider logged out","Anonymous cloud session remains available for this device.",true);
+}
+
+function adminLogout(){
+  appRole=null;selectedRiderId=null;
+  showView("view-auth");setAuthMode("admin");
+  toast("Admin logged out","Cloud session was not terminated.",true);
+}
+
+/* ---------- STARTUP ---------- */
+(async function boot(){
+  setAuthMode("rider");
+  setConnection("Connecting to Cloud...",false);
+
+  /* Cloud is attempted, but the UI never waits forever and Admin remains usable. */
+  const timeout=new Promise(resolve=>setTimeout(()=>resolve(false),10000));
+  await Promise.race([ensureCloud(),timeout]);
+
+  if(cloudReady){
+    setConnection("Cloud connected",true);
+  }else{
+    setConnection("Connection failed",false);
+    $("connection-message").textContent="Cloud connection failed or timed out. Admin login still works. Rider/cloud features require a successful Supabase connection.";
+  }
+})();
+</script>
+</body>
+</html>
